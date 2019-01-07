@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package space.poulter.em.poker.client.test;
+package space.poulter.em.poker.client;
 
 import javafx.application.Application;
 import javafx.stage.Stage;
