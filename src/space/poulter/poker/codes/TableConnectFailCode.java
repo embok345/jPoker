@@ -1,5 +1,7 @@
 package space.poulter.poker.codes;
 
+import org.jetbrains.annotations.Contract;
+
 public enum TableConnectFailCode implements MessageCode {
 
     GENERIC(1),
@@ -13,11 +15,16 @@ public enum TableConnectFailCode implements MessageCode {
     }
 
     public static TableConnectFailCode getByValue(int val) {
+        return getByValue(new Byte((byte) val));
+    }
+
+    @Contract(value = "null -> null", pure = true)
+    public static TableConnectFailCode getByValue(Byte val) {
+        if (val == null) return null;
         for (TableConnectFailCode code : TableConnectFailCode.values()) {
-            if (code.val == val)
-                return code;
+            if (code.val == val) return code;
         }
-        return GENERIC;
+        return null;
     }
 
     public byte getVal() {

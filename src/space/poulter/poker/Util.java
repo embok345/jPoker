@@ -16,7 +16,7 @@ import java.util.logging.Logger;
 public class Util {
 
     public static final String VERSION_STR = "JPoker_0.0.1";
-    public static final Level LOG_LEVEL = Level.FINEST;
+    public static final Level LOG_LEVEL = Level.FINE;
     static final Logger rootLogger = Logger.getLogger("");
     public static int DEFAULT_PORT = 1111;
 
@@ -29,7 +29,7 @@ public class Util {
             try {
                 return Class.forName(record.getSourceClassName()).getPackage().equals(Util.class.getPackage()) ||
                         Class.forName(record.getSourceClassName()).getPackage().equals(space.poulter.poker.server.Main.class.getPackage()) ||
-                        Class.forName(record.getSourceClassName()).getPackage().equals(space.poulter.poker.client.Main.class.getPackage());
+                        Class.forName(record.getSourceClassName()).getPackage().equals(space.poulter.poker.client.PokerClient.class.getPackage());
             } catch (ClassNotFoundException ex) {
                 return false;
             }

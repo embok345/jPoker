@@ -1,5 +1,8 @@
 package space.poulter.poker;
 
+import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
+
 import java.io.Serializable;
 import java.util.logging.Logger;
 
@@ -41,7 +44,7 @@ public class Card implements Serializable, Cloneable {
      *
      * @param str The string representation of the card.
      */
-    public Card(String str) {
+    public Card(@NotNull String str) {
         if (str.equals("null") || str.length() != 2) {
             rank = CardRank.ZERO;
             suit = CardSuit.NONE;
@@ -147,6 +150,7 @@ public class Card implements Serializable, Cloneable {
      * @param o the reference object with which to compare.
      * @return true if this Card is the same as the obj argument; false otherwise.
      */
+    @Contract(value = "null -> false", pure = true)
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof Card))
@@ -422,7 +426,7 @@ public class Card implements Serializable, Cloneable {
          * THREE a neighbour of TWO and FOUR, ..., ACE is a neighbour of KING. ZERO is a neighbour of nothing.
          *
          * @param rank The rank which may be a neighbour of this rank.
-         * @return true is the iven rank is a neighbour of this rank, false otherwise.
+         * @return true is the given rank is a neighbour of this rank, false otherwise.
          */
         boolean isNeighbour(CardRank rank) {
             switch (this) {

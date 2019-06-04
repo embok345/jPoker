@@ -4,10 +4,7 @@ import org.jetbrains.annotations.NotNull;
 import space.poulter.poker.PokerPacket;
 import space.poulter.poker.PokerSocket;
 import space.poulter.poker.Util;
-import space.poulter.poker.codes.AuthMode;
-import space.poulter.poker.codes.DisconnectReason;
-import space.poulter.poker.codes.PacketCode;
-import space.poulter.poker.codes.TableConnectFailCode;
+import space.poulter.poker.codes.*;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -25,7 +22,7 @@ class PokerServer {
     private static final int MAX_CLIENTS = 100;
 
     private final Logger log = Logger.getLogger(getClass().getName());
-    private final AuthMode authMode = AuthMode.NONE;
+    private final AuthMode authMode = AuthMode.PASSWORD;
     /**
      * List of client sockets which are currently connected to the server.
      */
@@ -33,7 +30,7 @@ class PokerServer {
     /**
      * Mapping of all of the tables currently available on the server, indexed by the table ids.
      */
-    private final Map<Integer, PokerTable> tables = new HashMap<>();
+    private final Map<Integer, ServerPokerTable> tables = new HashMap<>();
     private final ServerSocket serverSocket;
 
     {
@@ -60,7 +57,7 @@ class PokerServer {
         Random rand = new Random();
         byte[] noSeats = {6, 8, 10};
         for (int i = 0; i < rand.nextInt(80) + 20; i++) {
-            tables.put(i, new PokerTable(i, noSeats[rand.nextInt(3)]));
+            tables.put(i, new ServerPokerTable(i, noSeats[rand.nextInt(3)]));
         }
 
         /* Create the server socket. */
@@ -126,8 +123,8 @@ class PokerServer {
                     sockets.add(newPokerSocket);
                     log.config("Started new connection with " + newSocket.getInetAddress().toString());
 
-                    /* Do the authentication with the client. */
-                    newPokerSocket.authenticate();
+                    /* Start the authentication with the client. */
+                    newPokerSocket.startAuthentication();
 
                 } catch (IOException ioE) {
                     if (serverSocket.isClosed()) {
@@ -144,13 +141,17 @@ class PokerServer {
 
     }
 
+    private boolean authenticateUser(String username, String password) {
+        return username.equals("a") && password.equals("b");
+    }
+
     /**
      * The socket for communication between the server and the client.
      */
-    class PokerServerSocket extends PokerSocket {
+    private class PokerServerSocket extends PokerSocket {
 
         /**
-         * A sublist of the keyset of tables which the client associated with this socket is connected to.
+         * A sublist of the key set of tables which the client associated with this socket is connected to.
          */
         private final List<Integer> connectedTables = new ArrayList<>();
 
@@ -161,21 +162,28 @@ class PokerServer {
         /**
          * Authenticate the user on the client side of the connection.
          */
-        void authenticate() {
+        void startAuthentication() {
             /* Authentication differs based on the authentication mode of the server. */
-            switch (authMode) {
-                case NONE:
-                    /* If the server uses no authentication, the user is automatically authenticated. */
-                    setAuthenticated(true);
-                    writePacket(PokerPacket.createPacket(PacketCode.AUTH_REQUIRED, AuthMode.NONE));
-                    break;
-                case PASSWORD:
-                    /* If the server uses password authentication, send a request to the client for the username
-                     * and password. */
-                    writePacket(PokerPacket.createPacket(PacketCode.AUTH_REQUIRED, AuthMode.PASSWORD));
-                    //TODO do the password authentication.
-                    break;
+            if (authMode == AuthMode.NONE) {
+                /* If the server uses no authentication, the user is automatically authenticated. */
+                completeAuthentication();
+            } else {
+                /* Otherwise send a request for the given auth type. */
+                log.finer("Sending auth required");
+                writePacket(PokerPacket.createPacket(PacketCode.AUTH_REQUIRED, authMode));
             }
+        }
+
+        /**
+         * Finish the authentication with the user.
+         */
+        void completeAuthentication() {
+            setAuthenticated(true);
+            writePacket(PokerPacket.createPacket(PacketCode.AUTH_SUCCESS));
+            log.fine("Completed authentication of user.");
+
+            /* Send the list of tables available */
+
         }
 
         /**
@@ -190,10 +198,104 @@ class PokerServer {
 
             switch (pak.getCode()) {
 
+                case AUTH_DETAILS:
+                    /* Try to authenticate the user with the given details. */
+
+                    AuthMode mode = AuthMode.getByVal(pak.getByte(1));
+
+                    /* If we couldn't get the mode, reject the authentication. */
+                    if (mode == null) {
+                        setAuthenticated(false);
+                        writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, AuthMode.NONE, true, authMode));
+                        log.fine("Could not authenticate: unrecognized authentication type.");
+                        break;
+                    }
+
+                    /* If the auth request is not of the same type as required by the server, reject the auth.
+                     * Allow the correct auth type to continue. */
+                    //TODO we should really lower bound the authentication type.
+                    if (mode != authMode) {
+                        setAuthenticated(false);
+                        writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, mode, true, authMode));
+                        log.fine("Could not authenticate using mode " + mode);
+                        break;
+                    }
+
+                    /* Otherwise check the authentication. */
+                    switch (mode) {
+                        case PASSWORD:
+                            /* If the authentication type is password based, verify this. */
+                            /* Get the username and password. */
+                            String username = pak.getString(2);
+                            String password = pak.getString(6 + username.length());
+
+                            if (PokerServer.this.authenticateUser(username, password)) {
+                                /* If the given username and password are correct, set the connection authenticated. */
+                                completeAuthentication();
+                            } else {
+                                /* Otherwise, send a fail packet to the user, and allow them to try again.
+                                 * TODO we should limit the number of retries. */
+                                setAuthenticated(false);
+                                writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, mode, username,
+                                        true, authMode));
+                                log.fine("Could not authenticate user " + username);
+                            }
+                            break;
+
+                        case NONE:
+                            /* If the authentication is NONE, set authenticated. This should never be reached. */
+                            completeAuthentication();
+                            break;
+
+                        default:
+                            /* If the authentication type is anything else, we reject it. */
+                            setAuthenticated(false);
+                            writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, mode, true, authMode));
+                            log.fine("Could not authenticate, unrecognized authentication type.");
+                    }
+                    break;
+
+                case GLOBAL:
+                    /* Respond to the given global request. */
+                    if (!isAuthenticated()) {
+                        /* If the user isn't authenticated, reject the packet. */
+                        log.config("Cannot accept packet from unauthenticated user.");
+                        startAuthentication();
+                        break;
+                    }
+
+                    /* Get the Global Message Code. */
+                    GlobalCode globalCode = GlobalCode.getByValue(pak.getByte(1));
+
+                    if (globalCode == null) {
+                        log.fine("Could not get Global Message code");
+                        //TODO send error packet
+                        break;
+                    }
+
+                    switch (globalCode) {
+                        case GET_TABLES:
+                            //TODO send the table list.
+
+                        case NONE:
+                        default:
+                            log.fine("Unrecognized Global Message code: " + globalCode);
+                    }
+
+                    break;
+
                 case TABLE_DATA:
                     /* If the packet contains table data, try to send the packet on to the table. */
+
+                    if (!isAuthenticated()) {
+                        /* If the user isn't authenticated, reject the packet. */
+                        log.config("Cannot accept packet from unauthenticated user.");
+                        startAuthentication();
+                        break;
+                    }
+
                     Integer tableId = pak.getInteger(1);
-                    if (tableId < 0) {
+                    if (tableId == null || tableId < 0) {
                         log.config("Could not get table id from packet");
                         //TODO send response
                         break;
@@ -201,7 +303,7 @@ class PokerServer {
                     log.finer("Received packet for table " + tableId);
 
                     /* Make sure the id is correct, and that this socket is connected to the given table. */
-                    PokerTable table = tables.get(tableId);
+                    ServerPokerTable table = tables.get(tableId);
 
                     if (table == null) {
                         log.config("Table with given id doesn't exist.");
@@ -222,8 +324,15 @@ class PokerServer {
                 case TABLE_CLOSE:
                     /* Try to close the connection to the table. */
 
+                    if (!isAuthenticated()) {
+                        /* If the user isn't authenticated, reject the packet. */
+                        log.config("Cannot accept packet from unauthenticated user.");
+                        startAuthentication();
+                        break;
+                    }
+
                     tableId = pak.getInteger(1);
-                    if (tableId < 0) {
+                    if (tableId == null || tableId < 0) {
                         log.config("Could not get table id from packet");
                         //TODO send response.
                         //TABLE_CLOSE_FAIL
@@ -260,10 +369,18 @@ class PokerServer {
 
                 case TABLE_CONNECT:
                     /* Try to connect this socket to the table. */
+
+                    if (!isAuthenticated()) {
+                        /* If the user isn't authenticated, reject the packet. */
+                        log.config("Cannot accept packet from unauthenticated user.");
+                        startAuthentication();
+                        break;
+                    }
+
                     tableId = pak.getInteger(1);
 
                     /* Make sure that the table id is valid. */
-                    if (tableId < 0) {
+                    if (tableId == null || tableId < 0) {
                         log.config("Could not get table id from packet");
                         writePacket(PokerPacket.createPacket(PacketCode.TABLE_CONNECT_FAIL, tableId,
                                 TableConnectFailCode.DOES_NOT_EXIST, "Invalid table number: " + tableId));

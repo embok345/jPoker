@@ -3,6 +3,7 @@ package space.poulter.poker;
 import com.google.errorprone.annotations.Immutable;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import space.poulter.poker.codes.MessageCode;
 import space.poulter.poker.codes.PacketCode;
 
@@ -70,6 +71,10 @@ public class PokerPacket {
             } else if (o instanceof Byte) {
                 /* Adding a byte is easy. */
                 byteList.add((Byte) o);
+            } else if (o instanceof Boolean) {
+                /* Adding a boolean is the same as adding a byte. */
+                if ((Boolean) o) byteList.add((byte) 1);
+                else byteList.add((byte) 0);
             } else if (o instanceof MessageCode) {
                 /* To add the message code, just get the value from it. */
                 byteList.add(((MessageCode) o).getVal());
@@ -103,14 +108,15 @@ public class PokerPacket {
     /**
      * Get an int from the given offset within the packet. That is convert the four bytes in the array starting from the
      * given offset into an int. This is read only as a unsigned int, so the first byte must be less than 128. If not
-     * enough bytes are available, or the first byte is greater than 128, -1 is returned.
+     * enough bytes are available, or the first byte is greater than 128, null is returned.
      *
      * @param offset The offset in the array to find the int.
-     * @return The integer formed from the four bytes in the array from the given offset, or -1 if we can't get that.
+     * @return The integer formed from the four bytes in the array from the given offset, or null if we can't get that.
      */
-    public int getInteger(int offset) {
+    @Nullable
+    public Integer getInteger(int offset) {
         if (offset + 4 > bytes.length)
-            return -1;
+            return null;
         return Util.bytesToInt(Arrays.copyOfRange(bytes, offset, offset + 4));
     }
 
@@ -122,6 +128,7 @@ public class PokerPacket {
      * @param offset The offset in the array to find the String.
      * @return The String encoded within the packet, or the empty String if we cannot read the String.
      */
+    @NotNull
     public String getString(int offset) {
         /* Get the length of the string, and make sure we can read all of the string. */
         int strLen = getInteger(offset);
@@ -140,11 +147,27 @@ public class PokerPacket {
      * @return The byte at the specified position, or -1 if the index is out of bounds. Note we only
      * ever expect positive bytes in the array.
      */
-    public byte getByte(int index) {
-        if (index > bytes.length)
-            return -1;
+    @Nullable
+    public Byte getByte(int index) {
+        if (index >= bytes.length)
+            return null;
 
         return bytes[index];
+    }
+
+    /**
+     * Get the boolean value from the specified position in the packet. A boolean is encoded as 0 for false
+     * and 1 for true, although any non-zero value is also interpreted as true. Returns null if the given index
+     * is larger than the size of the array.
+     *
+     * @param index The index in the array in which to find the boolean.
+     * @return The boolean in the given position, or null if the position is out of bounds.
+     */
+    @Nullable
+    public Boolean getBool(int index) {
+        if (index >= bytes.length)
+            return null;
+        return bytes[index] != 0;
     }
 
     /**

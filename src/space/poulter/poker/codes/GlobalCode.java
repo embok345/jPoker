@@ -1,5 +1,7 @@
 package space.poulter.poker.codes;
 
+import org.jetbrains.annotations.Contract;
+
 public enum GlobalCode implements MessageCode {
 
     NONE(0),
@@ -13,12 +15,17 @@ public enum GlobalCode implements MessageCode {
         this.val = (byte) val;
     }
 
-    public static GlobalCode getByValue(int val) {
+    @Contract(value = "null -> null", pure = true)
+    public static GlobalCode getByValue(Byte val) {
+        if (val == null) return null;
         for (GlobalCode code : GlobalCode.values()) {
-            if (code.val == val)
-                return code;
+            if (code.val == val) return code;
         }
-        return NONE;
+        return null;
+    }
+
+    public static GlobalCode getByValue(int val) {
+        return getByValue(new Byte((byte) val));
     }
 
     public byte getVal() {

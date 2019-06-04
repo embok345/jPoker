@@ -13,17 +13,45 @@ public enum PacketCode implements MessageCode {
     NONE(0),
 
     /* For when either the client or the server wants to close the connection. */
+    /* DISCONNECT
+     * DisconnectReason reason
+     * String description
+     */
     DISCONNECT(1),
     /* A catch all which will be sent if either party send a message with an unrecognized code. */
     UNIMPLEMENTED(2),
 
     /* Used for the authentication of the user when connecting to the server. */
+
+    /* AUTH_REQUIRED
+     * AuthMode mode
+     */
     AUTH_REQUIRED(49),
+
+    /* AUTH_DETAILS
+     * AuthMode mode
+     * <AuthMode required fields>
+     */
     AUTH_DETAILS(50),
+
+    /* AUTH_FAIL
+     * AuthMode mode
+     * <AuthMode fields>
+     * boolean canContinue - true if the Authentication can continue, false otherwise.
+     * AuthMode[] modes - The modes of authentication that can continue.
+     */
     AUTH_FAIL(51),
+
+    /* AUTH_SUCCESS
+     * no fields
+     */
     AUTH_SUCCESS(52),
 
     /* Global catch all message code for when none other applies. */
+    /* GLOBAL
+     * GlobalCode code
+     * <GlobalCode fields>
+     */
     GLOBAL(80),
 
     /* Used for a client trying to connect to a new table. */
