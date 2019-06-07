@@ -22,7 +22,7 @@ class PokerServer {
     private static final int MAX_CLIENTS = 100;
 
     private final Logger log = Logger.getLogger(getClass().getName());
-    private final AuthMode authMode = AuthMode.PASSWORD;
+    private final AuthMode authMode = AuthMode.NONE;
     /**
      * List of client sockets which are currently connected to the server.
      */

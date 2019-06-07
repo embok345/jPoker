@@ -15,7 +15,6 @@ import org.jetbrains.annotations.NotNull;
 import space.poulter.poker.CommandFormatException;
 import space.poulter.poker.PokerPacket;
 import space.poulter.poker.PokerSocket;
-import space.poulter.poker.PokerTableData;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -262,7 +261,7 @@ public class OldPokerClient extends Application {
         buttonCol.setCellValueFactory(t -> new ReadOnlyObjectWrapper<>(t.getValue()));
 
         /* Create the button in the button column cells */
-        buttonCol.setCellFactory(cell -> new TableCell<PokerTableDataClient, PokerTableDataClient>() {
+        buttonCol.setCellFactory(cell -> new TableCell<>() {
             Button b = new Button("View");
 
             @Override
@@ -352,25 +351,26 @@ public class OldPokerClient extends Application {
                 return;
             }
             if (str.equals("Table List:")) {
-                try {
+                /*try {
                     //Object o = read();
                     Object o = null;
-                    if (!(o instanceof Integer)) throw new ClassNotFoundException();
+                    //if (!(o instanceof Integer)) throw new ClassNotFoundException();
+
                     Integer noTables = (Integer) o;
                     //System.out.println(noTables);
                     for (int i = 0; i < noTables; i++) {
                         //o = read();
-                        if (!(o instanceof PokerTableData)) throw new ClassNotFoundException();
+                        //if (!(o instanceof PokerTableData)) throw new ClassNotFoundException();
                         PokerTableDataClient data = new PokerTableDataClient((PokerTableData) o);
                         data.updateProperties();
                         tablesData.put(data.getTableID(), data);
                         //System.out.println(data.getTableID());
                     }
                     throw new IOException();
-                } catch (IOException | ClassNotFoundException ex) {
+                } catch (IOException ex) {
                     System.err.println("Exception occurred when receiving table list");
                     System.err.println(ex);
-                }
+                }*/
                 Platform.runLater(() ->
                         ((VBox) primaryView.getScene().getRoot()).getChildren().add(formatTableList())
                 );

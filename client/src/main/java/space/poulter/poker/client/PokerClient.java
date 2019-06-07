@@ -2,12 +2,13 @@ package space.poulter.poker.client;
 
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.property.SimpleIntegerProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.util.Pair;
@@ -263,9 +264,14 @@ public class PokerClient extends Application {
         menuBar.getMenus().add(menu_file);
 
         /* Set the scene, and show it. */
-        Scene scene = new Scene(new VBox(), 400, 350);
-        ((VBox) scene.getRoot()).getChildren().addAll(menuBar);
+        Scene scene = new Scene(new VBox());
+        HBox contentBox = new HBox();
+        contentBox.setMinWidth(300);
+        contentBox.setMinHeight(200);
+        contentBox.setId("content");
+        ((VBox) scene.getRoot()).getChildren().addAll(menuBar, contentBox);
         primaryStage.setScene(scene);
+        primaryStage.setResizable(false);
         primaryStage.show();
     }
 
@@ -276,47 +282,62 @@ public class PokerClient extends Application {
         tableView.setItems(tableViewData);
 
         TableColumn<ClientPokerTable, Integer> tableIdColumn = new TableColumn<>("Table ID");
-        TableColumn<ClientPokerTable, Integer> noSeatsColumn = new TableColumn<>("# of seats");
-        TableColumn<ClientPokerTable, Integer> occupiedSeatsColumn = new TableColumn<>("# occupied seats");
-        TableColumn<ClientPokerTable, ClientPokerTable> viewButtonColumn = new TableColumn<>("");
+        TableColumn<ClientPokerTable, Integer> noSeatsColumn = new TableColumn<>("# seats");
+        TableColumn<ClientPokerTable, Integer> occupiedSeatsColumn = new TableColumn<>("# occ seats");
 
         tableIdColumn.setCellValueFactory(t -> new SimpleIntegerProperty(t.getValue().getTableID()).asObject());
         noSeatsColumn.setCellValueFactory(t -> new SimpleIntegerProperty(t.getValue().getNoSeats()).asObject());
         occupiedSeatsColumn.setCellValueFactory(t -> new SimpleIntegerProperty(t.getValue().getOccupiedSeats()).asObject());
 
-        viewButtonColumn.setCellValueFactory(t -> new ReadOnlyObjectWrapper<>(t.getValue()));
-        viewButtonColumn.setCellFactory(cell -> new TableCell<ClientPokerTable, ClientPokerTable>() {
-
-            Button b = new Button("View");
-
-            @Override
-            public void updateItem(ClientPokerTable table, boolean empty) {
-
-                super.updateItem(table, empty);
-                if (!empty && table != null) {
-                    setGraphic(b);
-                    b.setOnMouseClicked(event -> {
-                        connectToTable(table.getTableID());
-                        table.increaseOccupiedSeats();
-                    });
-                } else {
-                    setText(null);
-                    setGraphic(null);
-                }
-
-            }
-        });
-
         tableView.getColumns().add(tableIdColumn);
         tableView.getColumns().add(noSeatsColumn);
         tableView.getColumns().add(occupiedSeatsColumn);
-        tableView.getColumns().add(viewButtonColumn);
 
-        TitledPane tablesPane = new TitledPane("Tables", tableView);
-        Accordion accordion = new Accordion(tablesPane);
-        accordion.setExpandedPane(tablesPane);
+        tableView.getSelectionModel().selectedItemProperty().addListener((observable, oldTable, newTable) ->
+                new Thread(() -> {
+                    if (oldTable != null && tables.containsValue(oldTable)) {
+                        oldTable.quit();
+                        tables.remove(oldTable.getTableID(), oldTable);
+                        Platform.runLater(() ->
+                                ((StackPane) primaryStage.getScene().getRoot()
+                                        .lookup("#content")
+                                        .lookup("#table_pane_background"))
+                                        .getChildren()
+                                        .removeIf(node ->
+                                                node.getId().equals("table_" + oldTable.getTableID())
+                                        )
+                        );
+                    }
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException iE) {
+                        System.out.println("Selection change interrupted.");
+                        return;
+                    }
+                    if (tableView.getSelectionModel().selectedItemProperty().get().equals(newTable)) {
+                        System.out.println("new table " + newTable.getTableID() + " is still selected.");
+                        connectToTable(newTable.getTableID());
+                        Platform.runLater(() ->
+                                ((StackPane) primaryStage.getScene().getRoot()
+                                        .lookup("#content")
+                                        .lookup("#table_pane_background"))
+                                        .getChildren().add(new PokerTablePane(newTable.getTableID()))
+                        );
+                    }
+                }).start()
+        );
 
-        Platform.runLater(() -> ((VBox) primaryStage.getScene().getRoot()).getChildren().add(accordion));
+        Platform.runLater(() -> {
+            StackPane tablePane = new StackPane();
+            tablePane.setMinWidth(500);
+            tablePane.setMinHeight(300);
+            tablePane.setId("table_pane_background");
+            ((HBox) primaryStage.getScene().getRoot().lookup("#content"))
+                    .getChildren()
+                    .addAll(tableView, tablePane);
+            primaryStage.sizeToScene();
+        });
+
     }
 
     private class PokerClientSocket extends PokerSocket {

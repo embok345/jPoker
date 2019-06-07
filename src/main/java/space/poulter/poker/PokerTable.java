@@ -42,6 +42,8 @@ public abstract class PokerTable {
                         try {
                             packetQueue.wait();
                         } catch (InterruptedException ex) {
+                            if (Thread.interrupted())
+                                log.finest("Queue handler interrupted. Continuing");
                         }
                     }
                     nextPacket = packetQueue.poll();
@@ -94,8 +96,11 @@ public abstract class PokerTable {
 
     public void addPacketToQueue(PokerPacket packet) {
 
+        Integer packetTableId = packet.getInteger(1);
+
         if (packet.getCode() != PacketCode.TABLE_DATA ||
-                packet.getInteger(1) != tableID) {
+                packetTableId == null ||
+                packetTableId != tableID) {
             log.config("Table " + tableID + " received message not intended for it.");
             return;
         }
@@ -105,5 +110,16 @@ public abstract class PokerTable {
             packetQueue.notify();
         }
 
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof PokerTable)) return false;
+        return tableID == ((PokerTable) o).tableID;
+    }
+
+    @Override
+    public int hashCode() {
+        return tableID;
     }
 }
