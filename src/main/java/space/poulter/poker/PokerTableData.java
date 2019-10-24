@@ -19,17 +19,17 @@ package space.poulter.poker;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-
 import java.io.Serializable;
 import java.util.Objects;
 import java.util.Set;
 
 /**
+ *
  * @author Em Poulter
  */
 public class PokerTableData implements Serializable {
-
-
+    
+    
     private volatile BiMap<Integer, PlayerData> players;
     private boolean gameIsRunning;
     /* stageOfPlay = -1 : not playing
@@ -41,21 +41,21 @@ public class PokerTableData implements Serializable {
      *                5 : showdown
      */
     private Integer stageOfPlay;
-
+    
     private Integer playersInHand;
-
+    
     private Integer pot;
     private Integer bet;
-
+    
     private Integer dealer;
     private Integer smallBlind;
     private Integer bigBlind;
-
+    
     private Cards b;
-
+    
     private Integer tableID;
     private Integer maxHands;
-
+    
     public void init(int id, int hands) {
         tableID = id;
         maxHands = hands;
@@ -70,200 +70,177 @@ public class PokerTableData implements Serializable {
         bet = 0;
         playersInHand = 0;
     }
-
-    public Integer getTableID() {
-        return tableID;
-    }
-
-    public void setTableID(Integer value) {
+    
+    public void setTableID(Integer value) { 
         tableID = value;
     }
+    public Integer getTableID() { return tableID; }
 
-    public Integer getMaxHands() {
-        return maxHands;
-    }
-
-    public void setMaxHands(Integer value) {
+    public void setMaxHands(Integer value) { 
         maxHands = value;
     }
-
+    public Integer getMaxHands() { return maxHands; }
+    
     public void resetBoard() {
         b = new Cards(5);
     }
-
     public void setBoardCard(Card c, Integer i) {
-        b.setCard(i, c);
+        b.setCard(c, i);
     }
-
     public Card getBoardCard(Integer i) {
         return b.getCard(i);
     }
-
     public void setBoardCards(Cards cards) {
-        if (cards.getSize() < 5) {
+        if(cards.size() < 5) {
             Cards newCards = new Cards(5);
-            int i = 0;
-            for (Card c : cards) {
-                newCards.setCard(i++, c);
+            int i=0;
+            for(Card c : cards) {
+                newCards.setCard(c, i++);
             }
             b = newCards;
         } else {
             b = cards;
         }
-
+        
     }
-
     public Cards getBoard() {
         return b;
     }
-
+    
     public PlayerData playerOnSeat(Integer index) {
-        if (seatIsOccupied(index)) {
+        if(seatIsOccupied(index)) {
             return players.get(index);
         }
         return null;
     }
-
     public boolean seatIsOccupied(Integer index) {
         //return occupiedSeats.contains(index);
         return players.containsKey(index);
     }
-
     public void setSeatOccupied(Integer index, PlayerData dat) {
-        if (!seatIsOccupied(index)) {
+        if(!seatIsOccupied(index)) {
             players.put(index, dat);
-            synchronized (this) {
+            synchronized(this) {
                 this.notify();
             }
         }
     }
-
     public void setSeatFree(Integer index) {
-        if (seatIsOccupied(index)) {
-            if (players.get(index).isInHand()) {
-                players.get(index).setAction(Util.PokerAction.FOLD);
+         if(seatIsOccupied(index)) {
+            if(players.get(index).isInHand()) {
+                players.get(index).setAction(Poker.PokerAction.NONE);
                 players.get(index).setInHand(false);
                 playersInHand--;
             }
             players.remove(index);
         }
     }
-
     public boolean isGameRunning() {
         return gameIsRunning;
     }
-
     public void setGameRunning(boolean isGameRunning) {
         gameIsRunning = isGameRunning;
-        if (gameIsRunning)
+        if(gameIsRunning) 
             stageOfPlay = 0;
-        else
+        else 
             stageOfPlay = -1;
-
+        
     }
-
-    public void updateStageOfPlay() {
-        stageOfPlay = (stageOfPlay + 1) % 6;
-
-    }
-
-    public Integer getStageOfPlay() {
-        return stageOfPlay;
-    }
-
     public void setStageOfPlay(int stage) {
         stageOfPlay = stage;
     }
-
+    public void updateStageOfPlay() {
+        stageOfPlay = (stageOfPlay+1)%6;
+        
+    }
+    public Integer getStageOfPlay() {
+        return stageOfPlay;
+    }
+    
     public BiMap<Integer, PlayerData> getPlayerAndIndex() {
         return players;
     }
-
+    public void setPlayers(BiMap<Integer, PlayerData> newPlayers) {
+        players = newPlayers;
+    }
     public Set<PlayerData> getPlayers() {
         //return players
         return players.inverse().keySet();
     }
-
-    public void setPlayers(BiMap<Integer, PlayerData> newPlayers) {
-        players = newPlayers;
-    }
-
     public Integer getNoPlayers() {
         return players.size();
     }
-
-    public Integer getPlayersInHand() {
-        return playersInHand;
-    }
-
     public void setPlayersInHand(int noPlayers) {
         playersInHand = noPlayers;
     }
-
+    public Integer getPlayersInHand() {
+        return playersInHand;
+    }
     public int removePlayerFromHand(Integer i) {
-
-        if (seatIsOccupied(i) && playerOnSeat(i).isInHand()) {
+        
+        if(seatIsOccupied(i) && playerOnSeat(i).isInHand()) {
             playerOnSeat(i).setInHand(false);
             playersInHand--;
         }
-
+        
         return getPlayersInHand();
-
-    }
-
+        
+    }    
     public Integer getPot() {
         return pot;
-    }
-
-    public void setPot(Integer pot) {
-        this.pot = pot;
     }
 
     public Integer getBet() {
         return bet;
     }
 
-    public void setBet(Integer bet) {
-        this.bet = bet;
-    }
-
     public Integer getDealer() {
         return dealer;
-    }
-
-    public void setDealer(Integer dealer) {
-        this.dealer = dealer;
     }
 
     public Integer getSmallBlind() {
         return smallBlind;
     }
 
-    public void setSmallBlind(Integer smallBlind) {
-        this.smallBlind = smallBlind;
-    }
-
     public Integer getBigBlind() {
         return bigBlind;
+    }
+
+    
+    public void addToPot(Integer add) {
+        pot += add;
+    }
+    public void setPot(Integer pot) {
+        this.pot = pot;
+    }
+
+    public void setBet(Integer bet) {
+        this.bet = bet;
+    }
+
+    public void setDealer(Integer dealer) {
+        this.dealer = dealer;
+    }
+
+    public void setSmallBlind(Integer smallBlind) {
+        this.smallBlind = smallBlind;
     }
 
     public void setBigBlind(Integer bigBlind) {
         this.bigBlind = bigBlind;
     }
-
-    public void addToPot(Integer add) {
-        pot += add;
-    }
-
+    
+    
+    
     @Override
     public String toString() {
-        return "ID:" + getTableID() + ", MaxHands:" + getMaxHands();
+        return "ID:"+getTableID() + ", MaxHands:"+getMaxHands();
     }
-
+    
     @Override
     public boolean equals(Object o) {
-        if (!(o instanceof PokerTableData)) return false;
-        PokerTableData dat = (PokerTableData) o;
+        if(!(o instanceof PokerTableData)) return false;
+        PokerTableData dat = (PokerTableData)o;
         return getTableID().equals(dat.getTableID());
     }
 
@@ -273,6 +250,8 @@ public class PokerTableData implements Serializable {
         hash = 17 * hash + Objects.hashCode(this.tableID);
         return hash;
     }
+    
+    
 
-
+    
 }

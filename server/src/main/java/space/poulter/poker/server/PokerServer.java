@@ -1,452 +1,368 @@
+/*
+ * Copyright (C) 2018 Em Poulter <em@poulter.space>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 package space.poulter.poker.server;
 
-import org.jetbrains.annotations.NotNull;
-import space.poulter.poker.PokerPacket;
-import space.poulter.poker.PokerSocket;
-import space.poulter.poker.Util;
-import space.poulter.poker.codes.*;
-
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
+import at.favre.lib.crypto.bcrypt.BCrypt;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.Charset;
-import java.util.*;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import space.poulter.poker.ClientSocket;
+import space.poulter.poker.PokerTableData;
 
-class PokerServer {
-
-    private static final String SERVER_VERSION = Util.VERSION_STR + "_server" + "\r\n";
-    private static final int MAX_CLIENTS = 100;
-
-    private final Logger log = Logger.getLogger(getClass().getName());
-    private final AuthMode authMode = AuthMode.NONE;
-    /**
-     * List of client sockets which are currently connected to the server.
-     */
-    private final List<PokerServerSocket> sockets = new ArrayList<>();
-    /**
-     * Mapping of all of the tables currently available on the server, indexed by the table ids.
-     */
-    private final Map<Integer, ServerPokerTable> tables = new HashMap<>();
-    private final ServerSocket serverSocket;
-
-    {
-        log.setLevel(Util.LOG_LEVEL);
-    }
-
-    /**
-     * Create a server running on the default port given by Util.DEFAULT_PORT. Currently 1111.
-     */
-    PokerServer() {
-        this(Util.DEFAULT_PORT);
-    }
-
-    /**
-     * Create a server running on the given port.
-     *
-     * @param port The port for the server to listen on.
-     */
-    PokerServer(int port) {
-
-        log.finest("Poker Server starting.");
-
-        /* Create all of the tables. */
-        Random rand = new Random();
-        byte[] noSeats = {6, 8, 10};
-        for (int i = 1; i < 10; i++) {
-            tables.put(i, new ServerPokerTable(i, noSeats[rand.nextInt(3)]));
+/**
+ *
+ * @author Em Poulter <em@poulter.space>
+ */
+public class PokerServer extends Thread {
+    
+    private final String DB_USERNAME = "poker";
+    private final String DB_PASSWORD = "***OOPS***";
+    private final String DB_NAME = "poker";
+    private final boolean USING_DB = false;
+    
+    Integer port;
+    Integer numTables;
+    
+    Map<Integer, PokerTable> tables;
+    //List<ClientSocket> sockets;
+    BiMap<Integer, ClientSocket> sockets;
+    ServerSocket serverSocket;
+    
+    public class ServerSideSocket extends ClientSocket {
+        
+        public ServerSideSocket(Socket s) throws IOException {
+            super(s);
         }
-
-        /* Create the server socket. */
-        ServerSocket innerSock = null;
-        try {
-            innerSock = new ServerSocket(port);
-            log.finest("Server socket started");
-        } catch (IOException ioE) {
-            /* If we can't open the server socket, we must exit. */
-            log.logp(Level.SEVERE, this.getClass().getName(), "<init>", "Could not open server socket. Exiting", ioE);
-            System.exit(1);
-        } finally {
-            serverSocket = innerSock;
-        }
-
-        /* Create a Thread to accept new connections to the server socket. */
-        Thread waitForConnections = new Thread(() -> {
-            while (true) {
+        
+        @Override
+        public void processCommand(String str) {
+            
+            if(str.startsWith("auth:")) {
+                
+                if(!USING_DB) {
+                    try {
+                        write("auth:done");
+                        if(!sockets.containsValue(this)) {
+                            sockets.put(sockets.size(), this);
+                        }
+                    } catch(IOException ex) {
+                        System.err.println("Could not send command");
+                        System.err.println(ex);
+                    }
+                    return;
+                }
+                
+                //<editor-fold defaultstate="collapsed" desc="authorise user, if using db">
+                
                 try {
-                    /* Continually try to accept connection to the server. */
-                    log.finest("Waiting for new connection");
-                    Socket newSocket = serverSocket.accept();
-                    log.fine("Accepted new connection");
-
-                    BufferedOutputStream buffOut = new BufferedOutputStream(newSocket.getOutputStream());
-                    BufferedInputStream buffIn = new BufferedInputStream(newSocket.getInputStream());
-                    log.finest("Set up io streams");
-
-                    /* Exchange the version strings. */
-                    buffOut.write(SERVER_VERSION.getBytes(Charset.forName("US-ASCII")));
-                    buffOut.flush();
-                    log.finest("Written version to stream");
-                    byte[] clientVersionBytes = new byte[100];
-                    int readBytes = buffIn.read(clientVersionBytes);
-
-                    /* If we couldn't read from the stream, close this new connection. */
-                    if (readBytes < 0) {
-                        log.warning("Could not read from the new stream.");
-                        newSocket.close();
-                        continue;
+                    Class.forName("com.mysql.cj.jdbc.Driver");
+                } catch(ClassNotFoundException ex) {
+                    System.err.println("Could not find jdbc connector");
+                    System.err.println(ex);
+                    //return;
+                }
+                
+                String username, password;
+                
+                try {
+                    if(sockets.containsValue(this)) {
+                        write("auth:fail:4");
+                        return;
                     }
-                    String clientVersionStr = new String(clientVersionBytes, Charset.forName("US-ASCII")).substring(0, readBytes);
-                    log.config("Server version: " + SERVER_VERSION);
-                    log.config("Client version: " + clientVersionStr);
-
-                    /* If the versions don't match, close the new connection. */
-                    if (!clientVersionStr.startsWith(Util.VERSION_STR) || !clientVersionStr.endsWith("\r\n")) {
-                        log.warning("Client version differs from server version.");
-                        newSocket.close();
-                        continue;
+                    String upperString = str.substring(str.indexOf(":")+1); //user:$name:pass:$pwd
+                    if(!upperString.startsWith("user:")) {
+                        write("auth:fail:1");
+                        return;
                     }
-
-                    /* Start up the new encapsulated socket. */
-                    PokerServerSocket newPokerSocket = new PokerServerSocket(newSocket, buffIn, buffOut);
-
-                    if (sockets.size() >= MAX_CLIENTS) {
-                        /* If there are too many clients connected, disconnect. */
-                        newPokerSocket.writePacket(PokerPacket.createPacket(PacketCode.DISCONNECT, DisconnectReason.TOO_MANY_CONNECTIONS,
-                                "There are currently too many connections to the server, try again later."));
-                        continue;
+                    upperString = upperString.substring(upperString.indexOf(":")+1);//$name:pass:$pwd
+                    if(!upperString.contains(":")) {
+                        write("auth:fail:1");
+                        return;
                     }
-
-                    sockets.add(newPokerSocket);
-                    log.config("Started new connection with " + newSocket.getInetAddress().toString());
-
-                    /* Start the authentication with the client. */
-                    newPokerSocket.startAuthentication();
-
-                } catch (IOException ioE) {
-                    if (serverSocket.isClosed()) {
-                        /* If the server socket is closed, we need to exit. */
-                        log.severe("Server socket was closed. Exiting");
-                        System.exit(1);
-                    } else {
-                        log.warning("New connection to server failed.");
+                    username = upperString.substring(0, upperString.indexOf(":"));//$name
+                    upperString = upperString.substring(upperString.indexOf(":")+1);//pass:$pwd
+                    if(!upperString.startsWith("pass:")) {
+                        write("auth:fail:1");
+                        return;
+                    }
+                    password = upperString.substring(upperString.indexOf(":")+1);
+                    
+                    System.out.println("username: "+username+", password: "+password);
+                    
+                } catch(IOException ex) {
+                    System.err.println("Exception when failing authorisation");
+                    System.err.println(ex);
+                    return;
+                }
+                
+                try(Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/"+DB_NAME+"?useSSL=no", DB_USERNAME, DB_PASSWORD)) {
+                    
+                    String selectStr = "select pkid, crypt, enabled, connected from user where name = ?";
+                    
+                    try (PreparedStatement pStmt = conn.prepareStatement(selectStr)) {
+                        pStmt.setString(1, username);
+                        
+                        try(ResultSet rs = pStmt.executeQuery()) {
+                            Integer pkid = -1;
+                            char[] passwd = null;
+                            boolean enabled = false, connected = true;
+                            int noResults = 0;
+                            while(rs.next()) {
+                                noResults++;
+                                pkid = rs.getInt("pkid");
+                                passwd = rs.getString("crypt").toCharArray();
+                                enabled = rs.getBoolean("enabled");
+                                connected = rs.getBoolean("connected");
+                            }
+                            if(noResults!=1) {
+                                System.err.println("Authorisation failed: user doesn't exist");
+                                write("auth:fail:2");
+                                return;
+                            }
+                            if(!enabled) {
+                                System.err.println("Authorisation failed: acoount not enabled");
+                                write("auth:fail:3");
+                                return;
+                            }
+                            if(connected || sockets.containsKey(pkid)) {
+                                System.err.println("Authorisation failed: already connected");
+                                write("auth:fail:4");
+                                return;
+                            }
+                            
+                            BCrypt.Result result = BCrypt.verifyer().verify(password.toCharArray(), passwd);
+                            
+                            if(result.verified) {
+                                System.out.println("user authorised");
+                                write("auth:done");
+                                
+                                try(PreparedStatement updateStmt = conn.prepareStatement("update user set connected = ? where name = ?")) {
+                                    updateStmt.setInt(1, 1);
+                                    updateStmt.setString(2, username);
+                                    int i = updateStmt.executeUpdate();
+                                    if(i!=1) {
+                                        System.err.println("The update didn't work");
+                                    }
+                                }
+                                
+                                sockets.put(pkid, this);
+                                
+                                return;
+                                
+                            } else {
+                                System.err.println("Authorisation failed: wrong password");
+                                write("auth:fail:5");
+                                return;
+                            }
+                        }
+                        
+                    }
+                    
+                } catch(SQLException | IOException ex) {
+                    System.err.println("Exception when authorising");
+                    System.err.println(ex);
+                }
+//</editor-fold>
+            
+                
+            }
+            
+            if(str.equals("Get Tables")) {
+                //System.out.println(ServerSideSocket.this);
+                try {
+                    write("Table List:");
+                    write(tables.size());
+                    for(Map.Entry<Integer, PokerTable> table : tables.entrySet()) {
+                        PokerTableData dat = ((PokerTableData)table.getValue().getData());
+                        write(dat);
+                    }
+                } catch(IOException e) {
+                    System.err.println("Exception occured when sending table list");
+                    System.err.println(e);
+                }
+                return;
+            }
+            
+            if(str.startsWith("View:")) {
+                Integer index = Integer.parseInt(str.substring(5));
+                if(tables.get(index).hasSocket(this)) return;
+                tables.get(index).addSocket(this);
+                return;
+            }
+            
+            if(str.startsWith("ID:")) {
+                Integer index = Integer.parseInt(str.substring(3, str.indexOf(':', 3)));
+                tables.get(index).processCommand(str.substring(str.indexOf(':', 3)+1), this);
+                return;
+            }
+            if(str.equals("Exit")) {
+                System.out.println("Socket closing");
+                
+                if(USING_DB) {
+                    try(Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/"+DB_NAME+"?useSSL=no", DB_USERNAME, DB_PASSWORD)) {
+                    
+                        String selectStr = "update user set connected = ? where pkid = ?";
+                    
+                        try (PreparedStatement pStmt = conn.prepareStatement(selectStr)) {
+                            pStmt.setInt(1, 0);
+                            pStmt.setInt(2, sockets.inverse().get(this));
+                        
+                            pStmt.executeUpdate();
+                        }
+                    } catch(SQLException ex) {
+                        System.err.println(ex);
                     }
                 }
+                try {
+                    write("Exit");
+                } catch(IOException ex) {
+                    System.err.println("Exception when telling client to exit");
+                    System.err.println(ex);
+                }
+                
+                sockets.inverse().remove(this);
+                
+                close();
+                //return;
             }
-        });
-        waitForConnections.start();
-
-    }
-
-    private boolean authenticateUser(String username, String password) {
-        return username.equals("a") && password.equals("b");
-    }
-
-    /**
-     * The socket for communication between the server and the client.
-     */
-    private class PokerServerSocket extends PokerSocket {
-
-        /**
-         * A sublist of the key set of tables which the client associated with this socket is connected to.
-         */
-        private final List<Integer> connectedTables = new ArrayList<>();
-
-        PokerServerSocket(Socket s, BufferedInputStream in, BufferedOutputStream out) {
-            super(s, in, out);
-        }
-
-        /**
-         * Authenticate the user on the client side of the connection.
-         */
-        void startAuthentication() {
-            /* Authentication differs based on the authentication mode of the server. */
-            if (authMode == AuthMode.NONE) {
-                /* If the server uses no authentication, the user is automatically authenticated. */
-                completeAuthentication();
-            } else {
-                /* Otherwise send a request for the given auth type. */
-                log.finer("Sending auth required");
-                writePacket(PokerPacket.createPacket(PacketCode.AUTH_REQUIRED, authMode));
-            }
-        }
-
-        /**
-         * Finish the authentication with the user.
-         */
-        void completeAuthentication() {
-            setAuthenticated(true);
-            writePacket(PokerPacket.createPacket(PacketCode.AUTH_SUCCESS));
-            log.fine("Completed authentication of user.");
-
-            /* Send the list of tables available */
-            sendTableList();
-
-        }
-
-        /**
-         * Send the list of tables available to the client.
-         */
-        private void sendTableList() {
-            /* Form an initial packet consisting of the codes, and the number of tables to send. */
-            PokerPacket tablesPacket = PokerPacket.createPacket(PacketCode.GLOBAL, GlobalCode.TABLE_LIST,
-                    tables.size());
-            /* Then, add the tableId, number of seats, and number of occupied seats, for each table. */
-            for (Map.Entry<Integer, ServerPokerTable> entry : tables.entrySet()) {
-                tablesPacket = tablesPacket.addAll(entry.getKey(), entry.getValue().getNoSeats(), entry.getValue().getOccupiedSeats());
-                //TODO there may be more information we want to send.
-            }
-            writePacket(tablesPacket);
-        }
-
-        /**
-         * Process the packet received from the client.
-         *
-         * @param pak The packet to process.
-         */
-        @Override
-        public void processCommand(@NotNull PokerPacket pak) {
-
-            log.finer("Trying to process packet.");
-
-            switch (pak.getCode()) {
-
-                case AUTH_DETAILS:
-                    /* Try to authenticate the user with the given details. */
-
-                    AuthMode mode = AuthMode.getByVal(pak.getByte(1));
-
-                    /* If we couldn't get the mode, reject the authentication. */
-                    if (mode == null) {
-                        setAuthenticated(false);
-                        writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, AuthMode.NONE, true, authMode));
-                        log.fine("Could not authenticate: unrecognized authentication type.");
-                        break;
-                    }
-
-                    /* If the auth request is not of the same type as required by the server, reject the auth.
-                     * Allow the correct auth type to continue. */
-                    //TODO we should really lower bound the authentication type.
-                    if (mode != authMode) {
-                        setAuthenticated(false);
-                        writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, mode, true, authMode));
-                        log.fine("Could not authenticate using mode " + mode);
-                        break;
-                    }
-
-                    /* Otherwise check the authentication. */
-                    switch (mode) {
-                        case PASSWORD:
-                            /* If the authentication type is password based, verify this. */
-                            /* Get the username and password. */
-                            String username = pak.getString(2);
-                            String password = pak.getString(6 + username.length());
-
-                            if (PokerServer.this.authenticateUser(username, password)) {
-                                /* If the given username and password are correct, set the connection authenticated. */
-                                completeAuthentication();
-                            } else {
-                                /* Otherwise, send a fail packet to the user, and allow them to try again.
-                                 * TODO we should limit the number of retries. */
-                                setAuthenticated(false);
-                                writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, mode, username,
-                                        true, authMode));
-                                log.fine("Could not authenticate user " + username);
-                            }
-                            break;
-
-                        case NONE:
-                            /* If the authentication is NONE, set authenticated. This should never be reached. */
-                            completeAuthentication();
-                            break;
-
-                        default:
-                            /* If the authentication type is anything else, we reject it. */
-                            setAuthenticated(false);
-                            writePacket(PokerPacket.createPacket(PacketCode.AUTH_FAIL, mode, true, authMode));
-                            log.fine("Could not authenticate, unrecognized authentication type.");
-                    }
-                    break;
-
-                case GLOBAL:
-                    /* Respond to the given global request. */
-                    if (!isAuthenticated()) {
-                        /* If the user isn't authenticated, reject the packet. */
-                        log.config("Cannot accept packet from unauthenticated user.");
-                        startAuthentication();
-                        break;
-                    }
-
-                    /* Get the Global Message Code. */
-                    GlobalCode globalCode = GlobalCode.getByValue(pak.getByte(1));
-
-                    if (globalCode == null) {
-                        log.fine("Could not get Global Message code");
-                        //TODO send error packet
-                        break;
-                    }
-
-                    switch (globalCode) {
-                        case GET_TABLES:
-                            sendTableList();
-                            break;
-
-                        case NONE:
-                        default:
-                            log.fine("Unrecognized Global Message code: " + globalCode);
-                    }
-
-                    break;
-
-                case TABLE_DATA:
-                    /* If the packet contains table data, try to send the packet on to the table. */
-
-                    if (!isAuthenticated()) {
-                        /* If the user isn't authenticated, reject the packet. */
-                        log.config("Cannot accept packet from unauthenticated user.");
-                        startAuthentication();
-                        break;
-                    }
-
-                    Integer tableId = pak.getInteger(1);
-                    if (tableId == null || tableId < 0) {
-                        log.config("Could not get table id from packet");
-                        //TODO send response
-                        break;
-                    }
-                    log.finer("Received packet for table " + tableId);
-
-                    /* Make sure the id is correct, and that this socket is connected to the given table. */
-                    ServerPokerTable table = tables.get(tableId);
-
-                    if (table == null) {
-                        log.config("Table with given id doesn't exist.");
-                        //TODO send response
-                        break;
-                    }
-                    if (!connectedTables.contains(tableId) || !table.hasConnectedSocket(this)) {
-                        log.config("Socket is not connected to table.");
-                        //TODO send response
-                        break;
-                    }
-
-                    /* Hand off the packet to the table. */
-                    table.addPacketToQueue(pak);
-
-                    break;
-
-                case TABLE_CLOSE:
-                    /* Try to close the connection to the table. */
-
-                    if (!isAuthenticated()) {
-                        /* If the user isn't authenticated, reject the packet. */
-                        log.config("Cannot accept packet from unauthenticated user.");
-                        startAuthentication();
-                        break;
-                    }
-
-                    tableId = pak.getInteger(1);
-                    if (tableId == null || tableId < 0) {
-                        log.config("Could not get table id from packet");
-                        //TODO send response.
-                        //TABLE_CLOSE_FAIL
-                        break;
-                    }
-                    log.finer("Trying to close table " + tableId);
-
-                    /* Make sure the id is correct, and that this socket is connected to the given table. */
-                    table = tables.get(tableId);
-
-                    if (table == null) {
-                        log.config("Table with given id doesn't exist.");
-                        //TODO send response
-                        //TABLE_CLOSE_FAIL
-                        break;
-                    }
-                    if (!connectedTables.contains(tableId) || !table.hasConnectedSocket(this)) {
-                        log.config("Socket is not connected to table.");
-                        //TODO send response
-                        //TABLE_CLOSE_FAIL
-                        break;
-                    }
-
-                    /* Remove the socket from the table. */
-                    table.removeConnectedSocket(this);
-                    connectedTables.remove(tableId);
-
-                    //TODO send response
-                    //TABLE_CLOSE_SUCCESS
-
-                    log.finer("Closed table " + tableId);
-
-                    break;
-
-                case TABLE_CONNECT:
-                    /* Try to connect this socket to the table. */
-
-                    if (!isAuthenticated()) {
-                        /* If the user isn't authenticated, reject the packet. */
-                        log.config("Cannot accept packet from unauthenticated user.");
-                        startAuthentication();
-                        break;
-                    }
-
-                    tableId = pak.getInteger(1);
-
-                    /* Make sure that the table id is valid. */
-                    if (tableId == null || tableId < 0) {
-                        log.config("Could not get table id from packet");
-                        writePacket(PokerPacket.createPacket(PacketCode.TABLE_CONNECT_FAIL, tableId,
-                                TableConnectFailCode.DOES_NOT_EXIST, "Invalid table number: " + tableId));
-                        break;
-                    }
-
-                    /* Make sure that the table id is one which exists. */
-                    if (!tables.containsKey(tableId)) {
-                        log.config("Invalid table number.");
-                        writePacket(PokerPacket.createPacket(PacketCode.TABLE_CONNECT_FAIL, tableId,
-                                TableConnectFailCode.DOES_NOT_EXIST, "Table number does not exist: " + tableId));
-                        break;
-                    }
-                    log.finer("Trying to connect to table " + tableId);
-
-                    table = tables.get(tableId);
-                    /* Make sure that this client isn't already attached to this table. */
-                    if (connectedTables.contains(tableId) || table.hasConnectedSocket(this)) {
-                        log.config("Already connected to table.");
-                        writePacket(PokerPacket.createPacket(PacketCode.TABLE_CONNECT_FAIL, tableId,
-                                TableConnectFailCode.ALREADY_CONNECTED, "Can't connect to tables already connected to."));
-                        break;
-                    }
-
-                    /* Add this socket to the table. */
-                    table.addConnectedSocket(this);
-                    connectedTables.add(tableId);
-
-                    log.finer("Connected to table " + tableId);
-                    writePacket(PokerPacket.createPacket(PacketCode.TABLE_CONNECT_SUCCESS, tableId));
-
-                    break;
-
-                case DISCONNECT:
-                    /* If the packet is a disconnect packet, disconnect this socket.
-                     * TODO disconnect from all of the related things. */
-                    log.fine("Closing connection");
-
-                    close();
-                    sockets.remove(this);
-                    break;
-
-                case NONE:
-                default:
-                    /* If we do not recognize the message, ignore it. */
-                    log.config("Could not get message code from packet.");
-                    //TODO send unimplemented code.
-            }
-
         }
     }
+    
+    private static void sendHelp() {
+        System.out.println("help");
+
+        System.exit(-1);
+    }
+    
+    private void init() {
+        
+        tables = new HashMap<>();
+        if(numTables == -1) {
+            Random rand = new Random();
+            numTables = rand.nextInt(100)+2;
+        }
+        for(int i = 0; i<numTables/2; i++) {
+            PokerTable newTable = new PokerTable();
+            newTable.init(i+1, 6);
+            tables.put(i+1, newTable);
+            newTable = new PokerTable();
+            newTable.init((i+numTables/2)+1, 8);
+            tables.put((i+numTables/2)+1, newTable);
+        }
+        if(port==-1) {
+            port = 1111;
+        }
+        try {
+            serverSocket = new ServerSocket(port); //TODO: change from normal socket to ssl socket
+            //sockets = new ArrayList<>();
+            sockets = HashBiMap.create();
+        } catch (IOException ex) {
+            //serverSocket = null;
+            System.err.println("Exception occured when creating server socket");
+            System.err.println(ex);
+            System.exit(-1);
+        } 
+    }
+    
+    public PokerServer(String args[]) {
+        
+        port = -1;
+        numTables = -1;
+        
+        List<String> listArgs = Arrays.asList(args);
+        Iterator<String> it = listArgs.iterator();
+        while(it.hasNext()) {
+            String s = it.next();
+            if(!s.startsWith("-")) {
+                System.err.println("The command line option '"+s+"' was not recognised");
+                sendHelp();
+            }
+            switch(s) {
+              
+                case "-n":
+                case "-numtables":
+                        String val = it.next();
+                        try {
+                            numTables = Integer.parseInt(val);
+                            if(numTables < 1 || numTables > 100)
+                                throw new NumberFormatException();
+                        } catch(NumberFormatException e) {
+                            System.err.println("The number of tables '"+val+"' was not a valid amount.");
+                            sendHelp();
+                            System.exit(-1);
+                        }
+                        break;
+                
+                case "-p": 
+                case "-port":
+                        val = it.next();
+                        try {
+                            port = Integer.parseInt(val);
+                        } catch(NumberFormatException e) {
+                            System.err.println("The port "+val+" was not a valid port");
+                            sendHelp();
+                            System.exit(-1);
+                        }
+                        break;
+                case "-h":
+                case "-help": 
+                        sendHelp();
+                        break;
+                default: System.err.println("The command line option '"+s+"' was not recognised");
+                         sendHelp();
+            } 
+        }
+
+        init();
+    }
+    
+    @Override
+    public void run() {
+        while(true) {
+            try {
+                ServerSideSocket newSock = new ServerSideSocket(serverSocket.accept());
+                newSock.startReader();
+                if(USING_DB) 
+                    newSock.write("auth:req");
+                else {
+                    newSock.write("auth:done");
+                    sockets.put(sockets.size(), newSock);
+                }
+                
+            } catch(IOException ex) {
+                System.err.println("Exception occured when trying to accept a new connection. Was the socket closed?");
+                System.err.println(ex);
+                //System.exit(-1);
+            }
+        }
+    }
+    
 }

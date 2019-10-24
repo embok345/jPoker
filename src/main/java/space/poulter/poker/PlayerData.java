@@ -18,21 +18,23 @@
 package space.poulter.poker;
 
 import java.io.Serializable;
+import space.poulter.poker.Poker.PokerAction;
 
 /**
+ *
  * @author Em Poulter
  */
 public class PlayerData implements Serializable {
-    //private transient PokerSocket clientSocket;
-
-    private final transient PokerSocket sock;
+    //private transient ClientSocket clientSocket;
+    
     public Integer chipCount;
     public Integer currentBet;
     public Integer raise;
     private transient Cards hand;
+    private final transient ClientSocket sock;
     private volatile boolean inHand;
-    private volatile Util.PokerAction playerAction;
-
+    private volatile PokerAction playerAction;
+    
     public PlayerData(Integer chips, Cards h) {
         //clientSocket = s;
         chipCount = chips;
@@ -40,62 +42,54 @@ public class PlayerData implements Serializable {
         hand = h;
         sock = null;
         inHand = false;
-        playerAction = Util.PokerAction.NONE;
+        playerAction = PokerAction.NONE;
     }
-
-    public PlayerData(Integer chips, Cards h, PokerSocket sock) {
+    public PlayerData(Integer chips, Cards h, ClientSocket sock) {
         chipCount = chips;
         hand = h;
         this.sock = sock;
         inHand = false;
-        playerAction = Util.PokerAction.NONE;
+        playerAction = PokerAction.NONE;
     }
-
+    
     public void resetHand() {
         hand = new Cards(2);
     }
-
-    public void setHand(Card c1, Card c2) {
-        hand = new Cards(c1, c2);
-    }
-
-    public Cards getHand() {
-        return hand;
-    }
-
     public void setHand(Cards h) {
         hand = h;
     }
-
+    public void setHand(Card c1, Card c2) {
+        hand = new Cards(c1, c2);
+    }
+    public Cards getHand() {
+        return hand;
+    }
+    
     public boolean isInHand() {
         return inHand;
     }
-
     public void setInHand(boolean inHand) {
         this.inHand = inHand;
     }
-
-    public Util.PokerAction getAction() {
-        return playerAction;
-    }
-
-    public void setAction(Util.PokerAction newAction) {
+    public void setAction(PokerAction newAction) {
         playerAction = newAction;
         try {
-            synchronized (this) {
+            synchronized(this) {
                 this.notify();
             }
-        } catch (IllegalMonitorStateException ex) {
+        } catch(IllegalMonitorStateException ex) {
             System.err.println("Exception when notifying of action");
         }
     }
-
+    public PokerAction getAction() {
+        return playerAction;
+    }
     public Integer getChips() {
         return chipCount;
     }
-
-    public PokerSocket getSocket() {
+    
+    public ClientSocket getSocket() {
         return sock;
     }
-
+    
 }

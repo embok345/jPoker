@@ -1,69 +1,77 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
 package space.poulter.poker.client;
 
 import javafx.application.Platform;
 import javafx.scene.Node;
-import javafx.scene.control.*;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.util.Pair;
 
 /**
- * Create the dialog to authenticate with the server. Contains a username and password field, and returns
- * their getRanks in a Pair.
- * This probably could be changed to an anonymous inner class, but I'm not sure which method would want overriding,
- * so we just deal with the constructor.
  *
- * @author Em Poulter <em@poulter.space>
+ * @author em
  */
-class LoginDialog extends Dialog<Pair<String, String>> {
-
-    /**
-     * Creates the dialog.
-     */
-    LoginDialog() {
-
-        /* Set the title and the login and cancel buttons */
+public class LoginDialog extends Dialog<Pair<String, String>>{
+    public LoginDialog() {
+        //System.out.println("Creating dialog");
         setTitle("Login to server");
         ButtonType loginButtonType = new ButtonType("Login", ButtonBar.ButtonData.OK_DONE);
         getDialogPane().getButtonTypes().addAll(loginButtonType, ButtonType.CANCEL);
-
-        /* Setup the layout of the dialog */
+        
+        //System.out.println("Creating dialog1");
+        
         GridPane grid = new GridPane();
         TextField username = new TextField();
         username.setPromptText("Username");
         PasswordField password = new PasswordField();
         password.setPromptText("Password");
-
+        
+        //System.out.println("Creating dialog2");
+        
+        
         grid.add(new Label("Username:"), 0, 0);
         grid.add(username, 1, 0);
         grid.add(new Label("Password:"), 0, 1);
         grid.add(password, 1, 1);
-
-
-        /* Retrieve the login button, and set it disabled to start with */
+        
+        //System.out.println("Creating dialog3");
+        
         Node loginButton = getDialogPane().lookupButton(loginButtonType);
         loginButton.setDisable(true);
-
-        /* If either the username or password is empty, or composed just of
-         * white space, disable the login button.
-         * TODO it seems the button would be enabled if either are non empty, rather
-         *  than both non empty*/
-        username.textProperty().addListener((observable, oldValue, newValue) ->
-                loginButton.setDisable(newValue.trim().isEmpty())
-        );
-        password.textProperty().addListener((observable, oldValue, newValue) ->
-                loginButton.setDisable(newValue.trim().isEmpty())
-        );
-
-        /* Set the dialog layout */
+        
+        //System.out.println("Creating dialog4");
+        
+        username.textProperty().addListener((observable, oldValue, newValue) -> {
+            loginButton.setDisable(newValue.trim().isEmpty());
+        });
+        password.textProperty().addListener((observable, oldValue, newValue) -> {
+            loginButton.setDisable(newValue.trim().isEmpty());
+        });
+        
+        //System.out.println("Creating dialog5");
+        
         getDialogPane().setContent(grid);
-
-        /* Get the focus for the username field */
-        Platform.runLater(username::requestFocus);
-
-        /* Get the result from the dialog */
-        setResultConverter(dialogButton ->
-                /* If login was selected, return the Pair consisting of the username & password, otherwise return null */
-                (dialogButton == loginButtonType) ? new Pair<>(username.getText(), password.getText()) : null
-        );
+        
+        Platform.runLater(() -> username.requestFocus());
+        
+        //System.out.println("Creating dialog6");
+        
+        setResultConverter(dialogButton -> {
+            if(dialogButton == loginButtonType) {
+                return new Pair<>(username.getText(), password.getText());
+            }
+            return null;
+        });
+        
+        //System.out.println("Creating dialog7");
     }
 }
